@@ -37,6 +37,61 @@ def seg_at(plan, i):
     return None
 
 
+def achieved_shot(person, M, out_w, out_h):
+    """
+    ★从**成片画面**反量实际景别 —— 与 shot_plan 里的"设计意图"区分开。
+
+    字幕原本只读 shot_plan 的 s["shot"]，那是 shotplan 阶段**想要**的景别。
+    但 camera 层会被 max_zoom（画质预算）和安全框夹住：
+    实测预览有 28% 的帧设计要 zoom=4.1、实际只做到 1.45 ——
+    这些帧字幕写着 MEDIUM，画面里其实是远景。**标签在骗人。**
+
+    做法：把 C位 关键点用同一个仿射矩阵 M 变换到成片坐标系，
+    量「整个人（含画面外部分，按解剖比例补全）」占成片高的比例，再按同一套阈值定档。
+    返回 (shot, cover) 或 (None, None)。
+    """
+    if not person or M is None:
+        return None, None
+    kp = {}
+    for k in (person.get("keypoints") or []):
+        xy = k.get("xy")
+        if xy and len(xy) >= 2 and (k.get("confidence") is None or k["confidence"] >= 0.3):
+            v = M @ np.array([float(xy[0]), float(xy[1]), 1.0])
+            kp[k.get("name")] = (float(v[0]), float(v[1]))
+
+    def mid(a, b):
+        p, q = kp.get(a), kp.get(b)
+        if p and q:
+            return (p[1] + q[1]) / 2.0
+        return (p or q or (None, None))[1]
+
+    sh_y, hip_y = mid("left_shoulder", "right_shoulder"), mid("left_hip", "right_hip")
+    nose_y = (kp.get("nose") or (None, None))[1]
+    if sh_y is None or hip_y is None or hip_y <= sh_y:
+        return None, None
+    torso = hip_y - sh_y
+    crown = (nose_y - 0.65 * (sh_y - nose_y)) if (nose_y is not None and sh_y > nose_y) \
+        else sh_y - 0.5 * torso
+    expect_ank = hip_y + 1.9 * torso
+    cover = (expect_ank - crown) / max(1.0, out_h)     # 整个人占成片高的比例
+
+    ank_y = mid("left_ankle", "right_ankle")
+    knee_y = mid("left_knee", "right_knee")
+    inside = lambda y: y is not None and -8 < y < out_h - 8
+    if inside(ank_y):
+        return ("extreme_wide" if cover < 0.45 else "wide"), cover
+    if inside(knee_y):
+        return ("medium" if cover > 1.35 else "wide"), cover
+    if inside(hip_y):
+        return "medium", cover
+    return "closeup", cover
+    """当前帧所在的分镜段。"""
+    for s in (plan or []):
+        if s["start_f"] <= i < s["end_f"]:
+            return s
+    return None
+
+
 def shot_cut_frames(plan):
     """换景别的时刻（景别发生变化的段首帧）。运镜变化不算换景别。"""
     cuts = []
@@ -96,7 +151,7 @@ def draw_timeline(w, h, plan, events, beats, n, cur_i, fps):
     return img
 
 
-def draw_subtitle(frame, plan, i, fps, zoom=None, extra=None):
+def draw_subtitle(frame, plan, i, fps, zoom=None, extra=None, actual=None):
     """
     左上角字幕，统一格式：  景别 / 运动    zoom=x.xx    已用/总时长
 
@@ -115,6 +170,14 @@ def draw_subtitle(frame, plan, i, fps, zoom=None, extra=None):
     l1 = f"{SHOT_CN.get(shot, shot.upper())} / {MOVE_CN.get(move, str(move).upper())}"
     l2 = (f"zoom={zoom:.2f}   " if zoom is not None else "") + f"{el:.1f}/{dur:.1f}s"
     lines = [(l1, 0.58, col), (l2, 0.44, (215, 215, 215))]
+    # ★实际拍成的景别（从成片反量）。与设计不符时用红字标出 —— 这是最该看见的信息：
+    #   camera 层被 max_zoom / 安全框夹住时，设计要中景、画面其实是远景。
+    if actual is not None:
+        a_shot, a_cover = actual
+        if a_shot:
+            same = (a_shot == shot)
+            lines.append((f"actual: {SHOT_CN.get(a_shot, a_shot.upper())} (cover={a_cover:.2f})",
+                          0.40, (170, 170, 170) if same else (80, 80, 255)))
     if extra:
         lines.append((extra, 0.38, (160, 160, 160)))
 

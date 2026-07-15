@@ -19,8 +19,8 @@ output:
 #   path 指向 learn_template.py 产出的 json -> 用学到的风格。
 # ------------------------------------------------------------
 template:
-  path:   ./templates/13-motion_v1.json
-                     # 例：./templates/kpop_mv_v1.json
+  path:  ./templates/13-motion_v1.json
+                      # 例：./templates/kpop_mv_v1.json
 
 pipeline:
   stages: [probe, analysis, shotplan, camera, render]
@@ -91,7 +91,7 @@ camera:
   #     远景约需 1.8、中景约需 4~5、特写约需 10+。
   #   若 camera 日志报"XX% 帧想推近却被 max_zoom 夹住"，就是这里卡住了（与安全框无关）。
   #   要近景：allow_upscale_for_demo: true 且 max_zoom 调大（如 4.0），代价是上采样掉画质。
-  max_zoom: 10
+  max_zoom: 11
   allow_upscale_for_demo: true
   follow:
     min_zoom: 1.0

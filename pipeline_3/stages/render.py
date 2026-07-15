@@ -687,12 +687,16 @@ class RenderStage(Stage):
                 # ★调试版：C位框 + 预C位框(B1/B2) + 同样的字幕与时间轴。
                 #   坐标要用与画面同一个仿射矩阵 M 变换过去，否则必然错位。
                 dbg = cam_img.copy()
-                _box = ann.draw_subtitle(dbg, shot_plan, i, fps, zoom=cam.zoom,
-                                         extra="C=main subject  B1/B2=backup")
                 # ★primary_records[i] 是包装记录，真正的人在 ["primary_person"] 里，
                 #   直接对它取 box_xyxy 会拿到 None（框就画不出来）。
                 _rec = primary_records[i] if i < len(primary_records) else None
                 _person = (_rec or {}).get("primary_person")
+                # ★从成片反量「实际拍成的景别」，与 shot_plan 的设计意图并排显示。
+                #   两者不符 = camera 被 max_zoom/安全框夹住了 —— 这是最该看见的信息。
+                _act = ann.achieved_shot(_person, M, cam_img.shape[1], cam_img.shape[0])
+                _box = ann.draw_subtitle(dbg, shot_plan, i, fps, zoom=cam.zoom,
+                                         extra="C=main subject  B1/B2=backup",
+                                         actual=_act)
                 ann.draw_subject_debug(dbg, _person,
                                        (backup_subjects[i] if i < len(backup_subjects) else None),
                                        M=M, avoid=_box)
