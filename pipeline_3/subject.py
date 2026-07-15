@@ -42,7 +42,16 @@ DEFAULT_CFG = {
     #     权重 2.0 让它压过其它项之和 —— 边角的人不可能靠 尺度/正面度 翻盘。
     #   ★尺度降权：固定机位下前排的人天然更大，但"离镜头近" ≠ "是C位"。
     #   ★运动是条件项：只在「队伍大部分人动作较少」时才生效（见 motion_gate）。
-    "weights": {"center": 3.0, "scale": 0.25, "motion": 2.0, "frontal": 0.15, "event": 0.0},
+    # visible : 关键点可见比例（被挡住的人检出关节少）
+    # blocked : 前面有人挡住的程度（惩罚）
+    # out_of_zone: 走出画面五等分中间区域的惩罚 —— C位失效条件
+    # ★权重的硬约束：center + front 必须压得住其余所有加分项之和，
+    #   否则「明晃晃在最中间最前面的人」会被 motion/visible 累加翻盘。
+    #   实测教训：center=3.0 而 scale+motion+frontal+visible=3.4 → 居中项形同虚设。
+    #   现在 center(4.0)+front(2.0)=6.0 ≫ scale+motion+frontal+visible=1.4。
+    "weights": {"center": 4.0, "front": 2.0, "scale": 0.25, "motion": 0.8,
+                "frontal": 0.15, "visible": 0.2,
+                "blocked": 2.5, "out_of_zone": 1.5, "event": 0.0},
     # 运动闸门：群体运动中位数低于此 → 判「大家都不太动」→ 才让"动作最大的"夺位
     "motion_gate": {"group_still_th": 0.08, "center_damp_when_still": 0.2},
     # ★居中度参考点：frame=原始画面中心（推荐，最稳；固定机位下舞台中心≈画面中心）
@@ -192,6 +201,87 @@ def _frontal_score(person, conf_th):
     return float(np.clip(abs(ls[0] - rs[0]) / (0.35 * _body_height(person) + 1e-6), 0.0, 1.0))
 
 
+def _visibility(person, conf_th, frame_w=None, frame_h=None, edge_pad=8):
+    """
+    关键点可见比例 —— ★只对「被别人挡住」扣分，绝不对「被画框切掉」扣分。
+
+    这两者必须分开，理由和 _shot_from_exposure 里一模一样：
+      · 被别人挡住 → 确实不适合当 C位
+      · 被画框切掉 → **这恰恰说明他就是被摄主体**！中景/特写的定义就是把人切掉一部分。
+    不区分的后果（血的教训）：摄影师给某人一个中景 → 他腰以下被画框切掉 →
+      关键点缺一半 → 可见度低 → 打分把他淘汰 → C位 给了背景里全身可见的人 →
+      该帧按那人的露出判景别 → 判成 wide → **模板学不到中景**。
+
+    做法：bbox 一旦贴到画幅边缘，就认为缺失是取景造成的，不扣分（返回 1.0）。
+    """
+    kps = person.get("keypoints") or []
+    if not kps:
+        return 0.0
+    box = person.get("box_xyxy")
+    if box and len(box) >= 4 and frame_w and frame_h:
+        x0, y0, x1, y1 = [float(v) for v in box[:4]]
+        touching = (x0 <= edge_pad or y0 <= edge_pad
+                    or x1 >= frame_w - edge_pad or y1 >= frame_h - edge_pad)
+        if touching:
+            return 1.0          # 被画幅切了 —— 那是取景意图，不是遮挡
+    ok = sum(1 for k in kps
+             if k.get("xy") and (k.get("confidence") is None or k["confidence"] >= conf_th))
+    return float(ok) / max(1, len(kps))
+
+
+def _blocked_ratio(people, k, frame_h=None):
+    """
+    「前面有人挡住」的程度 ∈ [0,1]。
+    判据：另一人的 bbox 与本人重叠，且**底边更低**（在画面里更靠下 = 离镜头更近 = 站在前面）。
+    取重叠面积占本人 bbox 的比例，多人取最大。
+    ★这是你说的 C位失效条件之一：被严重遮挡 / 前面有人 → 不该再当 C位。
+    """
+    b = people[k].get("box_xyxy")
+    if not b or len(b) < 4:
+        return 0.0
+    ax0, ay0, ax1, ay1 = [float(v) for v in b[:4]]
+    # 贴到画幅下边缘 = 被取景切掉，不是被人挡住（同 _visibility 的理由）
+    if frame_h is not None and ay1 >= frame_h - 8:
+        return 0.0
+    area = max(1.0, (ax1 - ax0) * (ay1 - ay0))
+    worst = 0.0
+    for j, p in enumerate(people):
+        if j == k:
+            continue
+        c = p.get("box_xyxy")
+        if not c or len(c) < 4:
+            continue
+        bx0, by0, bx1, by1 = [float(v) for v in c[:4]]
+        if by1 <= ay1:                    # 底边更高 = 站在后面，挡不住
+            continue
+        ox = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+        oy = max(0.0, min(ay1, by1) - max(ay0, by0))
+        worst = max(worst, (ox * oy) / area)
+    return float(min(1.0, worst))
+
+
+def _front_score(people, k):
+    """
+    「站在最前面」的程度 ∈ [0,1] —— 你反复说的"明晃晃在最前面的人"。
+
+    ★深度线索用 bbox **底边**，不是面积：站在前排的人脚离镜头近、在画面里更靠下。
+      面积(scale)只是间接代理，还会被"个子高/张开手臂"污染。
+    归一：本帧所有人的底边 min→max 映射到 0→1。
+    """
+    ys = []
+    for p in people:
+        b = p.get("box_xyxy")
+        ys.append(float(b[3]) if (b and len(b) >= 4) else np.nan)
+    ys = np.array(ys, dtype=float)
+    ok = np.isfinite(ys)
+    if ok.sum() < 2 or not np.isfinite(ys[k]):
+        return 0.5
+    lo, hi = np.nanmin(ys[ok]), np.nanmax(ys[ok])
+    if hi - lo < 1e-6:
+        return 0.5
+    return float((ys[k] - lo) / (hi - lo))
+
+
 def _frame_scores(people, prev_center_by_tid, frame_w, frame_h, cfg):
     """算这一帧每个人的 C位分数（与 people 等长）。"""
     w = cfg["weights"]
@@ -226,27 +316,41 @@ def _frame_scores(people, prev_center_by_tid, frame_w, frame_h, cfg):
     #        否则边角的人靠狂动累加就能抢走 C位（实测就是这么锁到边角去的）。
     #   模式2（队伍大部分人动作较少）：运动主导，居中降权——
     #        "别人静他动"的那个人就是此刻的焦点。
+    zone_frac = float(cfg.get("center_zone", {}).get("x_frac", 0.2))
     still_th = float(cfg.get("motion_gate", {}).get("group_still_th", 0.08))
     damp = float(cfg.get("motion_gate", {}).get("center_damp_when_still", 0.4))
     group_still = have_motion and (med_motion < still_th)
-    w_center = w["center"] * (damp if group_still else 1.0)
-    w_motion = w["motion"] if group_still else 0.0
+    # ★运动项恒定生效、且权重小。
+    #   旧写法是 `w_motion = w["motion"] if group_still else 0.0` —— 要么 2.0 全开、
+    #   要么 0 全关，没有中间态；配合"静止→居中砍到0.2倍"，一触发就整个翻盘。
+    #   现在：居中永远主导，运动只在居中程度相当时做次要区分。
+    w_center = w["center"]
+    w_motion = w["motion"]
 
     scores = []
     for k, p in enumerate(people):
-        P = _center_score(centers[k], ref, norm)
+        c = centers[k]
+        P = _center_score(c, ref, norm)
         Z = _scale_score(areas[k], max_area)
         m = motions[k]
-        # M 与 P/Z/F 同量纲 [0,1]：饱和函数 r/(1+r)，r=1(与他人相当)→0.5
         if np.isfinite(m) and med_motion > 1e-6:
             r = m / med_motion
             M = float(r / (1.0 + r))
         else:
             M = 0.5
         F = _frontal_score(p, conf_th)
-        E = 0.0
-        scores.append(w_center * P + w["scale"] * Z + w_motion * M
-                      + w["frontal"] * F + w["event"] * E)
+        # ★C位失效条件（你的规则）：走出画面五等分中间区域 / 被严重遮挡 / 前面有人。
+        #   在全局 DP 里不需要额外的状态机 —— 让分数掉下去，DP 自然会切走，
+        #   且它看得到未来，会挑最优时刻切。
+        V = _visibility(p, conf_th, frame_w, frame_h)
+        B = _blocked_ratio(people, k, frame_h)
+        Fr = _front_score(people, k)          # 站在最前面（bbox 底边更低）
+        out_zone = 0.0 if (c is not None and _in_center_zone(c, frame_w, zone_frac)) else 1.0
+        scores.append(w_center * P + w.get("front", 2.0) * Fr
+                      + w["scale"] * Z + w_motion * M
+                      + w["frontal"] * F + w["visible"] * V
+                      - w["blocked"] * B
+                      - w["out_of_zone"] * out_zone)
     return scores
 
 
@@ -507,6 +611,24 @@ def select_subject(records, frame_w, frame_h, fps, cfg=None,
           f"超过 re-ID 半径的跳变 {big} 次 ← 这个数大就是在人之间摇摆")
 
     primary = yp.fill_primary_gaps(primary, max_gap=int(cfg["fill_gap_frames"]))
+    # ★预C位：DP 已把每帧所有人的分数都算好了，次优/第三优就是现成的备份。
+    #   现任一旦失效（走出中间区域/被挡/前面有人），下游可以立刻切到已准备好的人。
+    backups = []
+    for i in range(n):
+        row = emit[i].copy()
+        row[int(path[i])] = -np.inf              # 排除现任
+        order = np.argsort(row)[::-1]
+        ppl = people_at[i] or []
+        cand = []
+        for m in order[:2]:
+            if np.isfinite(row[m]) and m < len(ppl):
+                c = yp._person_center(ppl[m])
+                cand.append({"tracker_id": ppl[m].get("tracker_id"),
+                             "box_xyxy": ppl[m].get("box_xyxy"),
+                             "center": list(c) if c else None,
+                             "score": round(float(row[m]), 3)})
+        backups.append(cand)
     meta = {"compose_mode": compose, "group_box": group_boxes,
-            "focus_switch_frames": switch_frames}
+            "focus_switch_frames": switch_frames,
+            "backup_subjects": backups}
     return primary, meta

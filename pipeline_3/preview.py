@@ -17,6 +17,7 @@ from .context import PipelineContext
 from .timeline import Timeline
 from . import template as tmpl
 from . import subject as subj
+from . import annotate as ann
 from . import yolo_pose as pose_utils
 from . import pose_events as pe
 from . import skeleton as sk
@@ -267,9 +268,10 @@ def render_preview_from_data(template_path, out_path, records, music,
             if primary[i]:
                 sk.draw_person_transformed(canvas, primary[i], M, min_conf=0.2,
                                            line_width=5, point_radius=6)
-            cv2.putText(canvas, f"{cam.shot} / {cam.move}  zoom={cam.zoom:.2f}",
-                        (16, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (40, 40, 40), 2, cv2.LINE_AA)
-            strip = _draw_timeline(out_w, strip_h, plan, events, music.get("beat_grid", []), n, fps, i)
+            ann.draw_subtitle(canvas, plan, i, fps, zoom=cam.zoom)
+            strip = ann.draw_timeline(out_w, strip_h, plan, events,
+                                      [b["frame"] for b in music.get("beat_grid", [])],
+                                      n, i, fps)
             writer.write(np.vstack([canvas, strip]))
         writer.release()
         size = os.path.getsize(real_path) if os.path.exists(real_path) else 0
@@ -323,9 +325,10 @@ def render_preview(template_path, out_path, orientation="portrait",
             canvas = np.full((out_h, out_w, 3), 255, np.uint8)
             sk.draw_person_transformed(canvas, primary[i], M, min_conf=0.2,
                                        line_width=5, point_radius=6)
-            cv2.putText(canvas, f"{cam.shot} / {cam.move}  zoom={cam.zoom:.2f}",
-                        (16, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (40, 40, 40), 2, cv2.LINE_AA)
-            strip = _draw_timeline(out_w, strip_h, plan, events, music["beat_grid"], n, fps, i)
+            ann.draw_subtitle(canvas, plan, i, fps, zoom=cam.zoom)
+            strip = ann.draw_timeline(out_w, strip_h, plan, events,
+                                      [b["frame"] for b in music["beat_grid"]],
+                                      n, i, fps)
             writer.write(np.vstack([canvas, strip]))
         writer.release()
         size = os.path.getsize(real_path) if os.path.exists(real_path) else 0

@@ -172,5 +172,6 @@ class AnalysisStage(Stage):
 
         ctx.extras["pose"] = pose
         ctx.extras["primary_records"] = primary_records
+        ctx.extras["backup_subjects"] = sel_meta.get("backup_subjects") or []
         ctx.extras["primary_keypoints_path"] = primary_json
         ctx.extras["keypoints_path"] = src

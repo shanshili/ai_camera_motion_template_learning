@@ -62,7 +62,13 @@ def default_template():
         # 形如 {"high": {"wide": 0.5, "medium": 0.3, "closeup": 0.2}, ...}
         # 生成端按学到的换镜节奏切网格，再按此分布派景别 —— 这样才还原得出
         # "MV 在一个段落内在特写/中景/远景之间切换"的味道。
-        "section_shot_dist": {},
+        # ★内置默认也要给景别分布，否则 shotplan 无配额可分 → 全片一个景别。
+        #   （曾经 config.template.path 一空，成片就是 wide=100%，很难看出原因。）
+        "section_shot_dist": {
+            "low":  {"wide": 0.45, "extreme_wide": 0.15, "medium": 0.30, "closeup": 0.10},
+            "mid":  {"wide": 0.45, "extreme_wide": 0.20, "medium": 0.25, "closeup": 0.10},
+            "high": {"wide": 0.40, "extreme_wide": 0.30, "medium": 0.20, "closeup": 0.10},
+        },
 
         # ---- 姿态事件 → 景别/运镜（含优先级与时长，秒）----
         # 全身动作(大跳/大位移)→大远景/远景；上身表达→中景/特写；旋转优先级高。

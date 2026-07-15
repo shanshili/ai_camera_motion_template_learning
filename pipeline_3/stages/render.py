@@ -25,6 +25,7 @@ import numpy as np
 from ..stage import Stage, register
 from ..ffio import frame_reader, FrameWriter
 from ..transform import camera_matrix, apply_to_frame, effective_max_zoom
+from .. import annotate as ann
 from .. import skeleton as sk
 from ..log import log, Progress
 
@@ -38,7 +39,8 @@ DEFAULT_OUTPUT_HEIGHT = 720
 
 # 默认只输出 final。如果你还想同时输出骨架视频，可以改成：
 # DEFAULT_RENDER_OUTPUTS = ["final", "skeleton_raw", "skeleton_cam"]
-DEFAULT_RENDER_OUTPUTS = ["final"]
+# debug = 带 C位骨架/预C位标注 + 景别字幕 + 分镜时间轴的排查版
+DEFAULT_RENDER_OUTPUTS = ["final", "debug"]
 
 DEFAULT_MOTION_BLUR_CONFIG = {
     "enabled": True,
@@ -122,6 +124,7 @@ def _out_paths(base_out):
     ext = ext or ".mp4"
     return {
         "final": base_out,
+        "debug": f"{root}_debug{ext}",          # C位/预C位标注 + 景别字幕 + 分镜时间轴
         "skeleton_raw": f"{root}_skeleton_raw{ext}",
         "skeleton_cam": f"{root}_skeleton_cam{ext}",
     }
@@ -540,6 +543,16 @@ class RenderStage(Stage):
 
         outputs = rc.get("outputs", DEFAULT_RENDER_OUTPUTS)
         paths = _out_paths(ctx.output_path)
+        # 标注所需：分镜表/事件/拍点/C位/预C位
+        shot_plan = ctx.extras.get("shot_plan") or []
+        pose_events = (ctx.extras.get("pose") or {}).get("pose_events") or []
+        beat_frames = [int(b["frame"]) for b in
+                       ((ctx.extras.get("music") or {}).get("beat_grid") or [])]
+        primary_records = ctx.extras.get("primary_records") or []
+        backup_subjects = ctx.extras.get("backup_subjects") or []
+        n_frames = ctx.timeline.frame_count
+        if not shot_plan:
+            outputs = [o for o in outputs if o != "debug"]   # 没分镜就没什么可标的
 
         audio = ctx.input_path if ctx.meta.get("has_audio") else None
 
@@ -589,6 +602,11 @@ class RenderStage(Stage):
                 audio_from=audio,
                 render_cfg=rc,
             )
+
+        if "debug" in outputs:
+            writers["debug"] = FrameWriter(
+                paths.get("debug", paths["final"].replace(".mp4", "_debug.mp4")),
+                out_w, final_h, fps, audio_from=audio, render_cfg=rc)
 
         if "skeleton_cam" in outputs:
             writers["skeleton_cam"] = FrameWriter(
@@ -658,12 +676,29 @@ class RenderStage(Stage):
                     prev_center = (cx, cy)
 
             if "final" in outputs:
-                # 这里是核心：
-                # cam_img 是 1280x720 主画面；
-                # _draw_music_timeline 会在下面追加 128px 时间轴；
-                # final_img 会变成 1280x848。
-                final_img = _draw_music_timeline(cam_img, music_timeline, i, fps)
-                writers["final"].write(final_img)
+                # cam_img 是 1280x720 主画面；下面追加时间轴 → 1280x848
+                # ★字幕：景别种类 + 该景别内的运镜动作；时间轴：换景别时刻(白竖线+三角)
+                ann.draw_subtitle(cam_img, shot_plan, i, fps, zoom=cam.zoom)
+                strip = ann.draw_timeline(cam_img.shape[1], 128, shot_plan, pose_events,
+                                          beat_frames, n_frames, i, fps)
+                writers["final"].write(np.vstack([cam_img, strip]))
+
+            if "debug" in outputs:
+                # ★调试版：C位框 + 预C位框(B1/B2) + 同样的字幕与时间轴。
+                #   坐标要用与画面同一个仿射矩阵 M 变换过去，否则必然错位。
+                dbg = cam_img.copy()
+                _box = ann.draw_subtitle(dbg, shot_plan, i, fps, zoom=cam.zoom,
+                                         extra="C=main subject  B1/B2=backup")
+                # ★primary_records[i] 是包装记录，真正的人在 ["primary_person"] 里，
+                #   直接对它取 box_xyxy 会拿到 None（框就画不出来）。
+                _rec = primary_records[i] if i < len(primary_records) else None
+                _person = (_rec or {}).get("primary_person")
+                ann.draw_subject_debug(dbg, _person,
+                                       (backup_subjects[i] if i < len(backup_subjects) else None),
+                                       M=M, avoid=_box)
+                strip = ann.draw_timeline(dbg.shape[1], 128, shot_plan, pose_events,
+                                          beat_frames, n_frames, i, fps)
+                writers["debug"].write(np.vstack([dbg, strip]))
 
             if "skeleton_cam" in outputs:
                 img = cam_img.copy()

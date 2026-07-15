@@ -13,16 +13,16 @@
       "median": 6,
       "mean": 6.75
     },
-    "c_exposure": {
-      "full_body": 0.8652,
-      "half_body": 0.09,
-      "head": 0.0448
+    "subject_exposure": {
+      "full_body": 0.797,
+      "half_body": 0.1562,
+      "head": 0.0468
     },
     "shot_hist": {
-      "closeup": 0.0448,
-      "medium": 0.09,
-      "wide": 0.7594,
-      "extreme_wide": 0.1058
+      "closeup": 0.0468,
+      "medium": 0.1562,
+      "wide": 0.647,
+      "extreme_wide": 0.1501
     },
     "source": "learned:13-motion.mp4"
   },
@@ -52,10 +52,10 @@
   },
   "section_shot_dist": {
     "mid": {
-      "wide": 0.7594,
-      "extreme_wide": 0.1058,
-      "medium": 0.09,
-      "closeup": 0.0448
+      "wide": 0.647,
+      "medium": 0.1562,
+      "extreme_wide": 0.1501,
+      "closeup": 0.0468
     }
   },
   "event_map": {
@@ -241,10 +241,10 @@
     }
   },
   "style_descriptor": [
-    0.0448,
-    0.09,
-    0.7594,
-    0.1058,
+    0.0468,
+    0.1562,
+    0.647,
+    0.1501,
     4.0,
     1.967,
     0.7143,
@@ -253,5 +253,31 @@
   "constraints": {
     "safe_frame_margin": 0.06,
     "core_y_anchor": 0.42
+  },
+  "shot_framing": {
+    "wide": {
+      "cover": 0.7284,
+      "cx_frac": 0.5016,
+      "head_top_frac": 0.2812,
+      "n_frames": 1272
+    },
+    "medium": {
+      "cover": 0.7997,
+      "cx_frac": 0.5032,
+      "head_top_frac": 0.2504,
+      "n_frames": 307
+    },
+    "extreme_wide": {
+      "cover": 0.403,
+      "cx_frac": 0.505,
+      "head_top_frac": 0.4066,
+      "n_frames": 295
+    },
+    "closeup": {
+      "cover": 0.85,
+      "cx_frac": 0.5338,
+      "head_top_frac": 0.1863,
+      "n_frames": 92
+    }
   }
 }

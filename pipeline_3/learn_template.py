@@ -110,14 +110,16 @@ def _shot_from_exposure(person, fw, fh, edge_pad=8):
 
     ★关键区分：「关节没检测到」≠「关节在画面外」。
       被别的舞者挡住 = 遮挡（漏检），画面其实是远景；
-      被画幅切掉     = 取景意图（真的是中景/特写）。
-      只有后者才是景别信号。所以先看 bbox 有没有贴到画面边缘：
-        · 没贴边 → 整个人都在画面里 → 全身 → 按占画面大小分 wide / extreme_wide
-        · 贴到底边 → 人被下边缘切了 → 再看最低的可见关节定切在哪：
-            踝可见  → 仍近似全身      → wide
-            膝可见  → 切在小腿        → wide
-            髋可见  → 腰以上          → medium
-            仅肩/头 → 胸以上          → closeup
+      被画幅切掉     = 取景意图（真的是中景/特写）。只有后者才是景别信号。
+
+    ★判「是否被裁」不能只看 bbox 有没有贴到画面底边 —— bbox 底边来自
+      **最低的可见关键点**：腿被画框切掉后，bbox 停在膝盖，够不到画面底边，
+      于是被误判成"全身都在画面内"→ wide。这会让模板学不到中景（实测中景只剩 5.9%）。
+      改用解剖比例反推「整个人本该到哪里」：
+          躯干 torso = 髋y − 肩y
+          脚踝应在   ≈ 髋y + 1.9×torso
+      若这个位置落到画面外，就说明腿被画框切了。两个信号取其一即可判定被裁。
+
     返回 (shot, exposure)；exposure ∈ full_body / half_body / head。
     """
     if not person:
@@ -125,25 +127,47 @@ def _shot_from_exposure(person, fw, fh, edge_pad=8):
     box = person.get("box_xyxy")
     if not (box and len(box) >= 4):
         return None, None
-    y1 = float(box[3])
-    r = max(0.0, y1 - float(box[1])) / max(1.0, fh)      # bbox 高占画面比
+    y0, y1 = float(box[1]), float(box[3])
 
-    # 没贴下边缘 → 全身在画面内（腿即便没检测到也是被挡住，不是被裁）
-    if y1 < fh - edge_pad:
-        return ("extreme_wide" if r < 0.45 else "wide"), "full_body"
-
-    # 贴下边缘 → 被裁。看最低的可见关节切在哪一段
+    sh = _kp_xy(person, ("left_shoulder", "right_shoulder"))
+    hip = _kp_xy(person, ("left_hip", "right_hip"))
+    nose = _kp_xy(person, ("nose",))
     ank = _kp_xy(person, ("left_ankle", "right_ankle"))
     knee = _kp_xy(person, ("left_knee", "right_knee"))
-    hip = _kp_xy(person, ("left_hip", "right_hip"))
-    inside = lambda p: p is not None and p[1] < fh - edge_pad
 
+    # 用解剖比例还原「整个人」的纵向范围（含画面外的部分）
+    expect_ank = np.nan
+    full_h = max(1.0, y1 - y0)
+    if sh is not None and hip is not None and hip[1] > sh[1]:
+        torso = hip[1] - sh[1]
+        expect_ank = hip[1] + 1.9 * torso
+        crown = (nose[1] - 0.65 * (sh[1] - nose[1])) if (nose is not None
+                                                         and sh[1] > nose[1]) else sh[1] - 0.5 * torso
+        full_h = max(1.0, expect_ank - crown)
+    r = full_h / max(1.0, fh)          # 「整个人」相对画面的大小（不是可见部分）
+
+    # 被裁的三个信号，任一成立即可：bbox 贴下边 / 贴上边（头出画）/ 解剖比例算出脚明显在画外。
+    #   ★脚踝外溢要留足余量（0.15×画面高）：1.9×torso 只是统计比例，
+    #     个体差异 + 关键点噪声会让"全身刚好占满画面"的人被误算成脚在画外 → 误判中景。
+    cut_bottom = (y1 >= fh - edge_pad) or (y0 <= edge_pad) \
+                 or (np.isfinite(expect_ank) and expect_ank > fh * 1.15)
+    if not cut_bottom:
+        # 全身都在画面内（腿即便没检出也是被别人挡住，不是被裁）
+        return ("extreme_wide" if r < 0.45 else "wide"), "full_body"
+
+    # 被裁 → 定档。★以「最低的可见关节」为主，r 只用来把 wide/medium 的边界掰正。
+    #   单靠可见关节不够（膝可见也可能是占画面 1.4 倍的中景）；
+    #   单靠 r 也不够（1.9×torso 是统计比例，个体差异会让边界飘）。两者结合：
+    inside = lambda p: p is not None and p[1] < fh - edge_pad
     if inside(ank):
+        # 脚都还在画面里 → 顶多切了点边角，仍是全景
         return ("extreme_wide" if r < 0.45 else "wide"), "full_body"
     if inside(knee):
-        return "wide", "full_body"
+        # 切在小腿：人不大 → 全景；人已占满画面 → 中景
+        return ("medium", "half_body") if r > 1.35 else ("wide", "full_body")
     if inside(hip):
         return "medium", "half_body"
+    # 髋都看不见 → 胸以上
     return "closeup", "head"
 
 
@@ -161,6 +185,63 @@ def section_label_at(sections, f):
         if s["start_f"] <= f < s["end_f"]:
             return s.get("label", "mid")
     return "mid"
+
+
+def _kp_y(person, name, conf_th=0.3):
+    for kp in (person.get("keypoints") or []):
+        if kp.get("name") == name and (kp.get("confidence") is None
+                                       or kp["confidence"] >= conf_th):
+            xy = kp.get("xy")
+            if xy and len(xy) >= 2:
+                return float(xy[1])
+    return float("nan")
+
+
+def _learn_shot_framing(primary, shots, fw, fh, conf_th=0.3):
+    """
+    ★学习「每个景别下，人物在取景中的相对位置」——模板真正可迁移的东西之一。
+
+    为什么这个可迁移、而「C位是谁」不可迁移：
+      参考视频机位是**动**的，画面中央的人是摄影师主动**放**在那儿的；
+      目标视频机位是**静**的，画面中央的人是自己**站**在那儿的。
+      两者之间没有身份对应关系，硬迁移毫无意义。
+      但「远景时人占画面 62%、头顶留白 12%、人放在画面横向 50%」
+      这种取景规格是纯几何的，换谁来都成立 —— 这才是该学的东西。
+
+    每个景别统计（全部相对量，与分辨率无关）：
+      cover         : 主体高 / 画面高
+      cx_frac       : 主体横向中心 / 画面宽    （摄影师把人放在画面哪儿）
+      head_top_frac : 颅顶距画面上边 / 画面高  （头顶留白）
+    """
+    acc = defaultdict(lambda: {"cover": [], "cx": [], "head": []})
+    for p, shot in zip(primary, shots):
+        if p is None or shot is None:
+            continue
+        box = p.get("box_xyxy")
+        if not box or len(box) < 4:
+            continue
+        x0, y0, x1, y1 = [float(v) for v in box[:4]]
+        h = y1 - y0
+        if h <= 1:
+            continue
+        # 颅顶：COCO-17 最高点是眉眼，真实头顶还要高（与 camera._crown_y 同比例）
+        nose = _kp_y(p, "nose", conf_th)
+        sl, sr = _kp_y(p, "left_shoulder", conf_th), _kp_y(p, "right_shoulder", conf_th)
+        sh_y = np.nanmean([sl, sr]) if (np.isfinite(sl) or np.isfinite(sr)) else np.nan
+        crown = (nose - 0.65 * (sh_y - nose)) if (np.isfinite(nose) and np.isfinite(sh_y)
+                                                  and sh_y > nose) else y0
+        acc[shot]["cover"].append(h / fh)
+        acc[shot]["cx"].append(((x0 + x1) / 2.0) / fw)
+        acc[shot]["head"].append(crown / fh)
+    out = {}
+    for shot, d in acc.items():
+        if len(d["cover"]) < 5:            # 样本太少，不足以成规格
+            continue
+        out[shot] = {"cover": round(float(np.median(d["cover"])), 4),
+                     "cx_frac": round(float(np.median(d["cx"])), 4),
+                     "head_top_frac": round(float(np.median(d["head"])), 4),
+                     "n_frames": len(d["cover"])}
+    return out
 
 
 def learn(ref_video, analysis_dir, name, genre):
@@ -221,8 +302,10 @@ def learn(ref_video, analysis_dir, name, genre):
     section_shot = defaultdict(Counter)
     exposure_cnt = Counter()          # C位出镜程度：full_body / half_body / head
     group_shot = Counter()            # ★群体(GROUP)帧上参考用过的景别
+    shot_per_frame = []
     for i, p in enumerate(primary):
         shot, exp = _shot_from_exposure(p, fw, fh)
+        shot_per_frame.append(shot)
         if shot is None:
             continue
         shot_dur[shot] += 1
@@ -230,6 +313,9 @@ def learn(ref_video, analysis_dir, name, genre):
         section_shot[section_label_at(sections, i)][shot] += 1
         if sel_meta["compose_mode"][i] == "GROUP":
             group_shot[shot] += 1
+
+    # ★学习每个景别的取景规格（人在画面里多大、放在哪、头顶留多少白）
+    shot_framing = _learn_shot_framing(primary, shot_per_frame, fw, fh)
 
     total = sum(shot_dur.values()) or 1
     shot_hist = {k: round(shot_dur.get(k, 0) / total, 4) for k in tmpl.SHOT_LADDER}
@@ -299,12 +385,21 @@ def learn(ref_video, analysis_dir, name, genre):
                  "bpm": music.get("bpm"),
                  "bpm_tolerance": 25.0,
                  "people_count": people_stats,      # 出镜人数范围
-                 # ★C位出镜情况（露出/遮挡）：套用时以此为主判别、优先保证
-                 "c_exposure": c_exposure,          # full_body/half_body/head 占比
-                 "shot_hist": shot_hist,            # 景别分布（按 C位露出统计）
+                 # 注：以下两项是**统计量**，不是"C位是谁"。
+                 #     模板绝不保存主体身份 —— 参考机位是动的（人是被摄影师放到中央的），
+                 #     目标机位是静的（人是自己站在中央的），两者无身份对应关系。
+                 "subject_exposure": c_exposure,    # 主体露出程度分布（全身/半身/头）
+                 "shot_hist": shot_hist,            # 景别分布
                  "source": f"learned:{os.path.basename(ref_video)}"}
     print(f"[learn] 朝向={orientation}({fw}x{fh}) · 人数区间={people_stats}")
-    print(f"[learn] C位出镜={c_exposure} · 景别直方图={shot_hist} · BPM={music.get('bpm')}")
+    print(f"[learn] 主体露出={c_exposure} · 景别直方图={shot_hist} · BPM={music.get('bpm')}")
+    # ★取景规格：每个景别下人在画面里多大、放在哪、头顶留多少白（可迁移的几何）
+    if shot_framing:
+        t["shot_framing"] = shot_framing
+        for sh, fr in shot_framing.items():
+            print(f"[learn] 取景规格 {sh:12s}: 人占画面高 {fr['cover']:.3f} · "
+                  f"横向位置 {fr['cx_frac']:.3f} · 头顶留白 {fr['head_top_frac']:.3f} "
+                  f"（{fr['n_frames']} 帧）")
     t["style"]["cut_rhythm_sec"] = cut_rhythm_sec
     t["style"]["shot_bias"] = shot_bias
     t["style"]["quantize_to_beat"] = bool(beat_sync >= 0.4)  # 参考本身卡点才开

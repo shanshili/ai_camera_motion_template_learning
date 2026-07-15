@@ -538,9 +538,24 @@ class CameraStage(Stage):
 
         log("构建主体几何序列（关键点极值/安全框输入）…")
         geom = _subject_geometry(ctx, n)
-        cover_cfg = cam_cfg.get("shot_coverage",
-                                {"wide": 0.60, "medium": 0.78, "upper": 0.95, "closeup": 1.0,
-                                 "extreme_wide": 0.45})
+        cover_cfg = dict(cam_cfg.get("shot_coverage",
+                                     {"wide": 0.60, "medium": 0.78, "upper": 0.95,
+                                      "closeup": 1.0, "extreme_wide": 0.45}))
+        # ★模板学到的取景规格优先：参考视频里「远景时人占画面多高」是可迁移的几何，
+        #   比 config 里的经验默认值更贴合该风格。
+        #   注：closeup 的 cover 恒为 1.0 —— 它的 content_h 已按「腰在下框、肩在中线」
+        #       精确反解出视窗高，再乘系数就破坏规格。
+        tpl_framing = (ctx.extras.get("template") or {}).get("shot_framing") or {}
+        used = []
+        for sh, fr in tpl_framing.items():
+            if sh == "closeup":
+                continue
+            c = float(fr.get("cover", 0))
+            if 0.1 <= c <= 2.0:
+                cover_cfg[sh] = c
+                used.append(f"{sh}={c:.2f}")
+        if used:
+            log(f"取景规格来自模板：{' '.join(used)}（closeup 用腰/肩规格反解）")
         # 注：closeup 的 cover 必须是 1.0 —— 它的 content_h 已按
         #     「腰在下框、肩在中线」精确反解出视窗高，再乘系数就破坏规格。
 

@@ -428,6 +428,10 @@ class ShotPlanStage(Stage):
         _tot = sum(_c.values()) or 1
         _pct = " ".join(f"{k}={v/_tot:.3f}" for k, v in _c.most_common())
         print(f"[shotplan] 逐帧景别占比: {_pct}")
+        if not dist_by_lab:
+            print("[shotplan][告警] 模板没有 section_shot_dist → 没有景别配额可分 → "
+                  "全片很可能只有一个景别。检查 config/default.yaml 的 template.path "
+                  "是否指向了学到的模板。")
         if dist_by_lab:
             _tgt = " ".join(f"{k}={v:.3f}" for k, v in
                             sorted(next(iter(dist_by_lab.values())).items(),

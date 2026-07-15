@@ -1,0 +1,15 @@
+{
+  "subject_in_frame_rate": 0.9486,
+  "head_chest_in_rate": 1.0,
+  "head_chest_offcenter_mean": 0.1626,
+  "upper_body_in_rate": 0.9954,
+  "fullbody_in_rate_on_masked": 1.0,
+  "fullbody_masked_frames": 37,
+  "zoom_min": 1.0,
+  "zoom_max": 1.45,
+  "rot_max_deg": 9.91,
+  "center_jerk95_px": 15.9511,
+  "zoom_jerk95": 0.044065,
+  "frames": 1966,
+  "keyframes": 151
+}

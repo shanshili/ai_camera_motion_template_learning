@@ -19,7 +19,8 @@ output:
 #   path 指向 learn_template.py 产出的 json -> 用学到的风格。
 # ------------------------------------------------------------
 template:
-  path:  ./templates/13-motion_v1.json                       # 例：./templates/kpop_mv_v1.json
+  path:   ./templates/13-motion_v1.json
+                     # 例：./templates/kpop_mv_v1.json
 
 pipeline:
   stages: [probe, analysis, shotplan, camera, render]
@@ -40,7 +41,16 @@ analysis:
       #   权重过高会让分数排序不停翻转 → C位乱聚焦。
       # 居中绝对优先（P 已按群体展布归一，满量程）；尺度降权（前排≠C位）；
       # 运动是条件项，只在「队伍大部分人动作较少」时才生效。
-      weights: {center: 3.0, scale: 0.25, motion: 2.0, frontal: 0.15, event: 0.0}
+      # visible=关键点可见比例 · blocked=前面有人挡住(惩罚) · out_of_zone=走出五等分中间区域(惩罚)
+      # 后三项就是 C位失效条件：分数掉下去，全局DP 自然会切到预C位
+      # ★硬约束：center + front 必须压得住其余加分项之和，
+      #   否则"最中间最前面的人"会被 motion/visible 累加翻盘
+      #   center(4.0)+front(2.0)=6.0 >> scale+motion+frontal+visible=1.4
+      # front = 站在最前面（bbox 底边更低 = 离镜头近），你要的"明晃晃在最前面"
+      # blocked = 前面有人挡住(惩罚) · out_of_zone = 走出五等分中间区域(惩罚)
+      weights: {center: 4.0, front: 2.0, scale: 0.25, motion: 0.8,
+                frontal: 0.15, visible: 0.2,
+                blocked: 2.5, out_of_zone: 1.5, event: 0.0}
       # group_still_th: 群体运动中位数低于此 → 判「大家都不太动」→ 切到运动主导模式
       # center_damp_when_still: 该模式下居中权重打的折扣
       motion_gate: {group_still_th: 0.08, center_damp_when_still: 0.2}
@@ -81,7 +91,7 @@ camera:
   #     远景约需 1.8、中景约需 4~5、特写约需 10+。
   #   若 camera 日志报"XX% 帧想推近却被 max_zoom 夹住"，就是这里卡住了（与安全框无关）。
   #   要近景：allow_upscale_for_demo: true 且 max_zoom 调大（如 4.0），代价是上采样掉画质。
-  max_zoom: 6
+  max_zoom: 10
   allow_upscale_for_demo: true
   follow:
     min_zoom: 1.0
@@ -108,7 +118,8 @@ camera:
 
 render:
   mode: decode_render
-  outputs: [final]             # 可加 skeleton_raw / skeleton_cam
+  # debug = 带 C位骨架 + 预C位(B1/B2)标注 + 景别/运镜字幕 + 分镜时间轴的排查版
+  outputs: [final, debug]      # 可加 skeleton_raw / skeleton_cam
   video_codec: libx264
   crf: 18
   preset: medium
