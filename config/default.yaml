@@ -1,0 +1,114 @@
+# AI 运镜 · 默认配置
+# ============================================================
+io:
+  input: ./dataset/            # 输入视频文件或目录
+  output: ./output/            # 输出目录或文件
+
+source:                        # 期望源规格（仅软校验，不一致只告警）
+  width: 1080
+  height: 1920                 # 竖屏示例；横屏改 1920x1080
+  fps: 30
+
+output:
+  width: 1280
+  height: 720
+
+# ------------------------------------------------------------
+# 模板：生成端读取的运镜策略文件。
+#   path 为空 -> 用内置 default_template()（已编码基本标准）。
+#   path 指向 learn_template.py 产出的 json -> 用学到的风格。
+# ------------------------------------------------------------
+template:
+  path:  ./templates/13-motion_v1.json                       # 例：./templates/kpop_mv_v1.json
+
+pipeline:
+  stages: [probe, analysis, shotplan, camera, render]
+
+analysis:
+  out_dir: ./analysis_out
+  out_dir_per_video: true
+  reuse_existing: true         # 复用已产出的 music.json / tracked_keypoints.json
+  music:
+    enabled: true
+  pose:
+    enabled: true
+    min_confidence: 0.3
+    # C位选择（subject 层）——不同风格"看谁"偏好不同
+    subject:
+      # 居中度权重最高：C位在多人场景中绝大多数时候站在队形中间。
+      # 运动权重压低：它是最噪的信号（舞蹈中逐帧剧烈波动），只用来打破平局，
+      #   权重过高会让分数排序不停翻转 → C位乱聚焦。
+      # 居中绝对优先（P 已按群体展布归一，满量程）；尺度降权（前排≠C位）；
+      # 运动是条件项，只在「队伍大部分人动作较少」时才生效。
+      weights: {center: 3.0, scale: 0.25, motion: 2.0, frontal: 0.15, event: 0.0}
+      # group_still_th: 群体运动中位数低于此 → 判「大家都不太动」→ 切到运动主导模式
+      # center_damp_when_still: 该模式下居中权重打的折扣
+      motion_gate: {group_still_th: 0.08, center_damp_when_still: 0.2}
+      # 居中度参考点：frame=原始画面中心（推荐，最稳，不受漏检影响）；group=群体质心
+      center_ref: frame
+      # 画面中央区域：x_frac=0.333 即三等分的中间那份。
+      # 现任移出该区域 → 触发换C；候选须在区域内 / 正移向中央 / 离中央够近(near_frac)
+      # x_frac=接任资格区(紧,五等分中间) near_frac=资格放宽区
+      # exit_frac=切走区(宽)：现任走出这里才换人。两者必须分开，
+      #   同一阈值收窄→正常走位就乱换；放宽→走开了不切。
+      center_zone: {x_frac: 0.2, near_frac: 0.4}
+      # 段落锁定：一个唱段内不换 C位（即便他移动），只在段落边界±window 内才允许换人。
+      # 这是治「C位乱聚焦」最有效的一条；关掉它会退回逐帧竞争。
+      # 全局DP的换人代价：switch_cost λ = 段内换 C位 要付的一次性代价。
+      #   它就是迟滞，但是全局且前瞻的：短暂抖动累积收益<λ→不换；
+      #   持续变化累积收益>λ→换，且换在最优时刻而非事后补救。调大=更黏。
+      # switch_window_sec: 段落边界/硬切前后多久内换人免费（λ=0）
+      # switch_cost_at_boundary: 边界处的换人代价。必须>0——若为0，DP 在窗口内
+      #   会退化成逐帧取argmax，噪声一抖就翻（实测能抖出115次换人）
+      section_lock: {enabled: true, switch_cost: 45.0, switch_cost_at_boundary: 5.0, switch_window_sec: 0.5}
+      compose: {feature_th: 0.35, release_margin: 0.10, hold_sec: 0.5}
+      fill_gap_frames: 15
+      min_kp_conf: 0.3
+
+shotplan:
+  enabled: true
+  # 策略（section_default / event_map / cut_rhythm / accent）全部来自模板，
+  # 这里只留开关；如需临时覆盖可在模板文件里改。
+
+camera:
+  type: rule
+  # ★想要近景/特写就得调这两个：
+  #   max_zoom 是"最大放大倍数"，它决定了镜头能推多近，是全片景别的总闸门。
+  #   默认 allow_upscale_for_demo=false 时，max_zoom 会被"画质预算"再夹一次：
+  #     画质预算 = min(源宽/成片宽, 源高/成片高)
+  #     例：1920x1080 源 → 1280x720 成片，画质预算=1.5，所以 max_zoom 实际只有 1.45。
+  #   主体在源画面里越小（如多人群舞，每人只占 1/3 画面高），需要的 zoom 越大：
+  #     远景约需 1.8、中景约需 4~5、特写约需 10+。
+  #   若 camera 日志报"XX% 帧想推近却被 max_zoom 夹住"，就是这里卡住了（与安全框无关）。
+  #   要近景：allow_upscale_for_demo: true 且 max_zoom 调大（如 4.0），代价是上采样掉画质。
+  max_zoom: 6
+  allow_upscale_for_demo: true
+  follow:
+    min_zoom: 1.0
+    min_cutoff: 0.45
+    beta: 0.03
+    zoom_min_cutoff: 0.30
+    zoom_beta: 0.015
+    deadzone_x: 0.10
+    deadzone_y: 0.12
+    max_center_step_px: 32.0
+  safe_frame:
+    enabled: true
+    margin_frac: 0.06
+    core_margin_frac: 0.10
+    core_center_pull: 0.6
+    core_y_anchor: 0.42
+    fullbody_events: [level_change, freeze, floor, ground, crouch]
+    fullbody_pad_sec: 0.6
+    downgrade_ratio: {wide: 0.82, medium: 0.68, upper: 0.55}
+  rotation:
+    enabled: true
+    max_deg: 10
+  # shot_coverage / templates(beat_pulse/downbeat_punch) 由模板在 shotplan 阶段注入
+
+render:
+  mode: decode_render
+  outputs: [final]             # 可加 skeleton_raw / skeleton_cam
+  video_codec: libx264
+  crf: 18
+  preset: medium

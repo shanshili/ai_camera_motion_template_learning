@@ -1,0 +1,12 @@
+# 在线运镜生成（主管线）
+numpy
+scipy
+opencv-python
+pyyaml
+# 可视化校验（tools/viz 用）
+matplotlib
+# 多人骨架前端 multi_person_tracking（离线产 tracked_keypoints.json）
+# 需要 GPU 与权重，按需安装：
+# ultralytics
+#
+# 外部命令行依赖：ffmpeg / ffprobe 需在 PATH 中（解码/编码/取音轨）。

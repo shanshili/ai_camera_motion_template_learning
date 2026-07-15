@@ -1,0 +1,243 @@
+{
+  "meta": {
+    "name": "13-motion_v1",
+    "genre": "dance",
+    "n_regime": "group",
+    "orientation": "landscape",
+    "aspect_ratio": 1.7778,
+    "bpm": 110.97,
+    "bpm_tolerance": 25.0,
+    "people_count": {
+      "min": 1,
+      "max": 15,
+      "median": 6,
+      "mean": 6.75
+    },
+    "c_exposure": {
+      "full_body": 0.8861,
+      "half_body": 0.0809,
+      "head": 0.0331
+    },
+    "shot_hist": {
+      "closeup": 0.0331,
+      "medium": 0.0809,
+      "wide": 0.6755,
+      "extreme_wide": 0.2106
+    },
+    "source": "learned:13-motion.mp4"
+  },
+  "style": {
+    "cut_rhythm_sec": 3.604,
+    "shot_bias": "wide",
+    "rotation_usage": 0.3,
+    "quantize_to_beat": true,
+    "prefer_downbeat_for_major": true,
+    "quiet_loudness_th": 0.08,
+    "group_min_shot": "wide"
+  },
+  "section_default": {
+    "low": {
+      "shot": "wide",
+      "move": "follow"
+    },
+    "mid": {
+      "shot": "wide",
+      "move": "follow"
+    },
+    "high": {
+      "shot": "medium",
+      "move": "push_in"
+    }
+  },
+  "section_shot_dist": {
+    "mid": {
+      "wide": 0.6755,
+      "extreme_wide": 0.2106,
+      "medium": 0.0809,
+      "closeup": 0.0331
+    }
+  },
+  "event_map": {
+    "jump": {
+      "shot": "extreme_wide",
+      "move": "pull_out",
+      "priority": 9,
+      "dur_sec": 1.0
+    },
+    "leap": {
+      "shot": "extreme_wide",
+      "move": "pull_out",
+      "priority": 9,
+      "dur_sec": 1.0
+    },
+    "big_move": {
+      "shot": "extreme_wide",
+      "move": "pull_out",
+      "priority": 8,
+      "dur_sec": 1.0
+    },
+    "travel": {
+      "shot": "extreme_wide",
+      "move": "follow",
+      "priority": 8,
+      "dur_sec": 1.0
+    },
+    "level_change": {
+      "shot": "wide",
+      "move": "pull_out",
+      "priority": 8,
+      "dur_sec": 1.1
+    },
+    "floor": {
+      "shot": "wide",
+      "move": "follow",
+      "priority": 9,
+      "dur_sec": 1.3
+    },
+    "freeze": {
+      "shot": "wide",
+      "move": "static",
+      "priority": 8,
+      "dur_sec": 0.8
+    },
+    "spin": {
+      "shot": "medium",
+      "move": "roll",
+      "priority": 7,
+      "dur_sec": 0.9
+    },
+    "extension": {
+      "shot": "medium",
+      "move": "push_in",
+      "priority": 6,
+      "dur_sec": 0.7
+    },
+    "gesture": {
+      "shot": "medium",
+      "move": "recenter",
+      "priority": 5,
+      "dur_sec": 0.8
+    },
+    "arm_hit": {
+      "shot": "medium",
+      "move": "push_in",
+      "priority": 6,
+      "dur_sec": 0.7
+    },
+    "face": {
+      "shot": "closeup",
+      "move": "recenter",
+      "priority": 5,
+      "dur_sec": 0.7
+    },
+    "focus_switch": {
+      "shot": "medium",
+      "move": "recenter",
+      "priority": 4,
+      "dur_sec": 0.6
+    }
+  },
+  "shot_coverage": {
+    "extreme_wide": {
+      "cover": 0.45,
+      "span": "full",
+      "head_top_frac": 0.3,
+      "foot_bot_frac": 0.2
+    },
+    "wide": {
+      "cover": 0.6,
+      "span": "full",
+      "head_top_frac": 0.25,
+      "foot_bot_frac": 0.1667
+    },
+    "medium": {
+      "cover": 0.82,
+      "span": "upper",
+      "head_top_frac": 0.28,
+      "arms_in": true
+    },
+    "closeup": {
+      "cover": 1.05,
+      "span": "chest",
+      "head_top_frac": 0.25,
+      "arms_in": true
+    }
+  },
+  "accent": {
+    "beat_pulse": {
+      "enabled": true,
+      "delta_zoom": 0.045,
+      "pre_f": 2,
+      "post_f": 4
+    },
+    "downbeat_punch": {
+      "enabled": true,
+      "delta_zoom": 0.14,
+      "attack_f": 1,
+      "release_f": 10
+    },
+    "sparsity_per_bar": 1.5,
+    "beat_response_curve": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        0.5,
+        0.3
+      ],
+      [
+        1.0,
+        1.0
+      ]
+    ],
+    "target_peak_excursion": 0.18
+  },
+  "subject_weights": {
+    "center": 0.9,
+    "scale": 1.0,
+    "motion": 0.8,
+    "frontal": 0.5,
+    "event": 0.0
+  },
+  "factor_weights": {
+    "beat": 0.7,
+    "section": 0.9,
+    "pose_event": 1.0,
+    "focus_switch": 0.8,
+    "silence": 0.5
+  },
+  "factor_envelopes": {
+    "beat": {
+      "shape": "impulse",
+      "pre": 0.07,
+      "post": 0.15
+    },
+    "section": {
+      "shape": "step"
+    },
+    "pose_event": {
+      "shape": "bell",
+      "pre": 0.25,
+      "post": 0.8
+    },
+    "focus_switch": {
+      "shape": "ramp",
+      "post": 0.5
+    }
+  },
+  "style_descriptor": [
+    0.0331,
+    0.0809,
+    0.6755,
+    0.2106,
+    3.604,
+    10.562,
+    0.8333,
+    0.5548
+  ],
+  "constraints": {
+    "safe_frame_margin": 0.06,
+    "core_y_anchor": 0.42
+  }
+}

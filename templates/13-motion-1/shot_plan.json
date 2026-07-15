@@ -1,0 +1,29 @@
+[
+  {
+    "start_f": 0,
+    "end_f": 176,
+    "shot": "extreme_wide",
+    "move": "pull_out",
+    "priority": 9,
+    "src": "event:jump",
+    "intensity": 0.175
+  },
+  {
+    "start_f": 176,
+    "end_f": 1392,
+    "shot": "wide",
+    "move": "roll",
+    "priority": 7,
+    "src": "event:spin",
+    "intensity": 0.883
+  },
+  {
+    "start_f": 1392,
+    "end_f": 1966,
+    "shot": "extreme_wide",
+    "move": "pull_out",
+    "priority": 9,
+    "src": "event:jump",
+    "intensity": 0.132
+  }
+]

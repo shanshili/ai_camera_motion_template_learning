@@ -1,0 +1,50 @@
+# 忽略所有视频文件
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+
+# 忽略任务相关文件
+*.task
+task/
+
+# 忽略临时文件
+*.tmp
+*.temp
+
+# 忽略日志文件
+*.log
+logs/
+
+# 忽略缓存目录
+cache/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 忽略配置文件中的敏感信息
+config/secret.yaml
+config/local.yaml
+config/production.yaml
+
+# 忽略环境文件
+.env
+.venv/
+env/
+
+# 忽略IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 忽略操作系统生成的文件
+.DS_Store
+Thumbs.db
+
+analysis_out/
+output/
+dataset/
